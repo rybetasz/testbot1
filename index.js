@@ -2,7 +2,8 @@ require("dotenv").config();
 const { Client, GatewayIntentBits } = require("discord.js");
 const { Shoukaku, Connectors } = require("shoukaku");
 
-// --- DISCORD CLIENT ---
+/* ---------------- DISCORD CLIENT SETUP ---------------- */
+
 const client = new Client({
   intents: [
     GatewayIntentBits.Guilds,
@@ -14,34 +15,40 @@ const client = new Client({
 
 const prefix = "!";
 
-// --- LAVALINK YAPILANDIRMASI (Shoukaku v4 + Lavalink v4) ---
-const Nodes = [{
-  name: "Ana-Sunucu",
-  url: "127.0.0.1:2333", 
-  auth: "youshallnotpass",
-  secure: false,
-}];
+/* ---------------- LAVALINK NODES & SHOUKAKU ---------------- */
 
-// Shoukaku Seçenekleri - Bağlantı stabilitesi için önemli
+const Nodes = [
+  {
+    name: "Ana-Sunucu",
+    url: "127.0.0.1:2333", // application.yml'deki port ile aynı olmalı
+    auth: "youshallnotpass",
+    secure: false,
+  },
+];
+
 const shoukakuOptions = {
   resume: true,
   resumeTimeout: 60,
   reconnectTries: 10,
-  restTimeout: 20000, // Lavalink'in yanıt vermesi için 20 saniye tanıyalım
+  restTimeout: 20000, // Lavalink'in arama yapması için yeterli süre
 };
 
 client.shoukaku = new Shoukaku(new Connectors.DiscordJS(client), Nodes, shoukakuOptions);
 
+/* ---------------- QUEUE SYSTEM ---------------- */
+
 const queue = new Map();
 
-// --- OYNATMA FONKSİYONU ---
+/**
+ * Sıradaki şarkıyı çalmaya yarayan fonksiyon
+ */
 async function playNext(guildId) {
   const data = queue.get(guildId);
   if (!data || data.tracks.length === 0) return;
 
   const nextTrack = data.tracks.shift();
   try {
-    // Lavalink v4'ün beklediği kesin JSON yapısı:
+    // Lavalink v4 için kesinleşmiş JSON yapısı
     await data.player.playTrack({ 
       track: { 
         encoded: nextTrack.encoded 
@@ -53,15 +60,17 @@ async function playNext(guildId) {
   }
 }
 
-// --- BOT OLAYLARI ---
+/* ---------------- EVENTS ---------------- */
+
 client.once("ready", () => {
   console.log(`✅ Bot Aktif: ${client.user.tag}`);
 });
 
-client.shoukaku.on("ready", (name) => console.log(`✅ Lavalink Bağlantısı Kuruldu: ${name}`));
+client.shoukaku.on("ready", (name) => console.log(`✅ Lavalink Bağlandı: ${name}`));
 client.shoukaku.on("error", (name, error) => console.error(`❌ Lavalink Hatası:`, error));
 
-// --- KOMUTLAR ---
+/* ---------------- COMMANDS ---------------- */
+
 client.on("messageCreate", async (message) => {
   if (!message.guild || message.author.bot || !message.content.startsWith(prefix)) return;
 
@@ -69,7 +78,7 @@ client.on("messageCreate", async (message) => {
   const cmd = args.shift().toLowerCase();
   const guildId = message.guild.id;
 
-  /* ---------------- PLAY KOMUTU ---------------- */
+  /* --- PLAY COMMAND --- */
   if (cmd === "play") {
     const voiceChannel = message.member.voice.channel;
     if (!voiceChannel) return message.reply("Önce bir ses kanalına girmelisin.");
@@ -79,20 +88,19 @@ client.on("messageCreate", async (message) => {
 
     let data = queue.get(guildId);
 
-    // Player yoksa oluştur ve kanala bağlan
+    // Player yoksa oluştur ve bağlan
     if (!data) {
       try {
         const player = await client.shoukaku.joinVoiceChannel({
-          guildId,
+          guildId: message.guild.id,
           channelId: voiceChannel.id,
           shardId: message.guild.shardId ?? 0,
-          deaf: true
+          deaf: true,
         });
 
         data = { player, tracks: [] };
         queue.set(guildId, data);
 
-        // Şarkı bittiğinde sıradakini çal
         player.on("end", (reason) => {
           if (reason.reason !== "replaced") playNext(guildId);
         });
@@ -102,35 +110,37 @@ client.on("messageCreate", async (message) => {
 
       } catch (err) {
         console.error("Bağlantı Hatası:", err);
-        return message.reply("❌ Ses kanalına bağlanırken bir hata oluştu.");
+        return message.reply("❌ Ses kanalına bağlanırken hata oluştu.");
       }
     }
 
-    // ARAMA MANTIĞI (Shoukaku v4 için optimize edildi)
+    // --- ARAMA İŞLEMİ (KRİTİK DÜZELTME) ---
     try {
       const isUrl = /^https?:\/\//.test(query);
+      // Shoukaku v4 rest.resolve yapısı
       const result = await data.player.node.rest.resolve(isUrl ? query : `ytsearch:${query}`);
 
-      // Gelen veri yapısı kontrolü
       if (!result || !result.data) {
-          return message.reply("❌ Arama başarısız oldu veya Lavalink yanıt vermedi.");
+        return message.reply("❌ Arama başarısız oldu veya Lavalink yanıt vermedi.");
       }
 
       let track;
-      // loadType'a göre track verisini ayıklama
+      // Gelen loadType'a göre track verisini doğru yerden alalım
       if (result.loadType === "track") {
-          track = result.data;
+        track = result.data;
       } else if (result.loadType === "playlist") {
-          track = result.data.tracks[0];
+        track = result.data.tracks[0];
       } else if (result.loadType === "search") {
-          track = result.data[0];
+        track = result.data[0];
       } else if (result.loadType === "empty") {
-          return message.reply("❌ Hiçbir sonuç bulunamadı.");
+        return message.reply("❌ Hiçbir sonuç bulunamadı.");
       }
 
-      if (!track) return message.reply("❌ Şarkı verisi yüklenemedi.");
+      if (!track || !track.encoded) {
+        return message.reply("❌ Geçerli bir şarkı verisi alınamadı.");
+      }
 
-      // Şarkıyı başlat veya sıraya ekle
+      // Şarkıyı çal veya sıraya ekle
       if (!data.player.track) {
         await data.player.playTrack({ track: { encoded: track.encoded } });
         message.reply(`🎵 Şu an çalıyor: **${track.info.title}**`);
@@ -139,31 +149,32 @@ client.on("messageCreate", async (message) => {
         message.reply(`➕ Sıraya eklendi: **${track.info.title}**`);
       }
     } catch (searchErr) {
-      console.error("Arama sırasında hata:", searchErr);
-      message.reply("❌ Arama işlemi sırasında bir sorun oluştu.");
+      console.error("Arama Hatası:", searchErr);
+      message.reply("❌ Arama sırasında bir hata oluştu veya bağlantı koptu.");
     }
   }
 
-  /* ---------------- SKIP KOMUTU ---------------- */
+  /* --- SKIP COMMAND --- */
   if (cmd === "skip") {
     const data = queue.get(guildId);
-    if (!data || !data.player) return message.reply("Çalan bir şey yok.");
+    if (!data || !data.player) return;
     data.player.stopTrack();
     message.reply("⏭️ Şarkı geçildi.");
   }
 
-  /* ---------------- STOP KOMUTU ---------------- */
+  /* --- STOP COMMAND --- */
   if (cmd === "stop") {
     const data = queue.get(guildId);
     if (data) {
       data.player.destroy();
       queue.delete(guildId);
-      message.reply("⛔ Durduruldu ve odadan çıkıldı.");
+      message.reply("⛔ Durduruldu ve kanaldan çıkıldı.");
     }
   }
 });
 
-// KRİTİK: Botun çökmesini engelleyen global hata yakalayıcı
+/* ---------------- GLOBAL ERROR HANDLING ---------------- */
+
 process.on("unhandledRejection", (error) => {
   console.error("--- GLOBAL HATA YAKALANDI ---");
   console.error(error);
