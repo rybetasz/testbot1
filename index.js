@@ -1,4 +1,4 @@
-require("dotenv").config();
+require('dotenv').config({ path: '/home/ubuntu/testbot1/.env' });
 const { Client, GatewayIntentBits } = require("discord.js");
 const { Shoukaku, Connectors } = require("shoukaku");
 
