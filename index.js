@@ -42,15 +42,14 @@ async function playNext(guildId) {
   const data = queue.get(guildId);
   if (!data || !data.tracks.length) return;
 
-  const track = data.tracks[0];
   const player = data.player;
+  const track = data.tracks[0];
 
-  if (!track?.encoded) return;
+  if (!player || !track) return;
 
   try {
-    await player.playTrack({
-      track: track.encoded,
-    });
+    // 🔥 FIX: direct track object (NO {track: encoded})
+    await player.playTrack(track);
   } catch (e) {
     console.log("PLAY ERROR:", e);
     data.tracks.shift();
@@ -58,7 +57,7 @@ async function playNext(guildId) {
   }
 }
 
-/* ---------------- SHOUKAKU EVENTS ---------------- */
+/* ---------------- EVENTS ---------------- */
 
 client.shoukaku.on("ready", (name) => {
   console.log("✅ Lavalink bağlı:", name);
@@ -108,7 +107,7 @@ client.on("messageCreate", async (message) => {
 
       data.player = player;
 
-      /* TRACK END FIX */
+      /* TRACK END */
       player.on("trackEnd", () => {
         const d = queue.get(guildId);
         if (!d) return;
@@ -122,7 +121,7 @@ client.on("messageCreate", async (message) => {
       });
     }
 
-    /* SEARCH FIX */
+    /* SEARCH */
     let result;
 
     try {
