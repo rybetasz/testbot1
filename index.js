@@ -40,12 +40,12 @@ client.once("ready", () => {
 
 async function playNext(guildId) {
   const data = queue.get(guildId);
-  if (!data || !data.tracks || data.tracks.length === 0) return;
+  if (!data || !data.tracks.length) return;
 
   const track = data.tracks[0];
   const player = data.player;
 
-  if (!track || !track.encoded) return;
+  if (!track?.encoded) return;
 
   try {
     await player.playTrack({
@@ -58,7 +58,7 @@ async function playNext(guildId) {
   }
 }
 
-/* ---------------- EVENTS ---------------- */
+/* ---------------- SHOUKAKU EVENTS ---------------- */
 
 client.shoukaku.on("ready", (name) => {
   console.log("✅ Lavalink bağlı:", name);
@@ -88,13 +88,13 @@ client.on("messageCreate", async (message) => {
   };
 
   /* ---------------- PLAY ---------------- */
+
   if (cmd === "play") {
     if (!voice) return message.reply("Voice’a gir");
-
     const query = args.join(" ");
     if (!query) return message.reply("Şarkı yaz");
 
-    let data = getData();
+    const data = getData();
 
     let player = client.shoukaku.players.get(guildId);
 
@@ -108,8 +108,8 @@ client.on("messageCreate", async (message) => {
 
       data.player = player;
 
-      /* TRACK END */
-      player.on("end", () => {
+      /* TRACK END FIX */
+      player.on("trackEnd", () => {
         const d = queue.get(guildId);
         if (!d) return;
 
@@ -122,33 +122,29 @@ client.on("messageCreate", async (message) => {
       });
     }
 
-    /* SEARCH (NULL SAFE) */
+    /* SEARCH FIX */
     let result;
 
     try {
       result = await player.node.rest.resolve(`ytsearch:${query}`);
     } catch (e) {
+      console.log(e);
       return message.reply("❌ search hatası");
     }
 
-    if (
-      !result ||
-      !result.data ||
-      !Array.isArray(result.data) ||
-      result.data.length === 0
-    ) {
+    if (!result?.tracks?.length) {
       return message.reply("❌ bulunamadı");
     }
 
-    const track = result.data[0];
+    const track = result.tracks[0];
 
-    if (!track || !track.encoded) {
+    if (!track?.encoded) {
       return message.reply("❌ track hatası");
     }
 
     data.tracks.push(track);
 
-    message.reply(`➕ eklendi: **${track.info.title}**`);
+    message.reply(`➕ eklendi: **${track.info?.title || "unknown"}**`);
 
     if (data.tracks.length === 1) {
       playNext(guildId);
@@ -156,6 +152,7 @@ client.on("messageCreate", async (message) => {
   }
 
   /* ---------------- SKIP ---------------- */
+
   if (cmd === "skip") {
     const player = client.shoukaku.players.get(guildId);
     if (!player) return;
@@ -165,6 +162,7 @@ client.on("messageCreate", async (message) => {
   }
 
   /* ---------------- STOP ---------------- */
+
   if (cmd === "stop") {
     const player = client.shoukaku.players.get(guildId);
     if (!player) return;
@@ -176,10 +174,11 @@ client.on("messageCreate", async (message) => {
   }
 
   /* ---------------- QUEUE ---------------- */
+
   if (cmd === "queue") {
     const data = queue.get(guildId);
 
-    if (!data || !data.tracks || data.tracks.length === 0) {
+    if (!data?.tracks?.length) {
       return message.reply("boş");
     }
 
