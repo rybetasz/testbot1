@@ -15,16 +15,17 @@ const prefix = "!";
 
 /* ---------------- LAVALINK ---------------- */
 
-const nodes = [
-  {
-    name: "main",
-    url: "127.0.0.1:2333",
-    auth: "youshallnotpass",
-    secure: false,
-  },
-];
-
-client.shoukaku = new Shoukaku(new Connectors.DiscordJS(client), nodes);
+client.shoukaku = new Shoukaku(
+  new Connectors.DiscordJS(client),
+  [
+    {
+      name: "main",
+      url: "127.0.0.1:2333",
+      auth: "youshallnotpass",
+      secure: false,
+    },
+  ]
+);
 
 /* ---------------- QUEUE ---------------- */
 
@@ -40,20 +41,22 @@ client.once("ready", () => {
 
 async function playNext(guildId) {
   const data = queue.get(guildId);
-  if (!data || !data.tracks.length) return;
+  if (!data) return;
 
   const player = data.player;
   const track = data.tracks[0];
 
-  if (!player || !track) return;
+  if (!player || !player.connected) return;
+  if (!track) return;
 
   try {
-    // 🔥 FIX: direct track object (NO {track: encoded})
     await player.playTrack(track);
-  } catch (e) {
-    console.log("PLAY ERROR:", e);
+
     data.tracks.shift();
-    playNext(guildId);
+  } catch (err) {
+    console.log("PLAY ERROR:", err);
+    data.tracks.shift();
+    setTimeout(() => playNext(guildId), 500);
   }
 }
 
@@ -64,7 +67,7 @@ client.shoukaku.on("ready", (name) => {
 });
 
 client.shoukaku.on("error", (name, error) => {
-  console.log("❌ Lavalink hata:", error);
+  console.log("❌ Lavalink error:", error);
 });
 
 /* ---------------- COMMANDS ---------------- */
@@ -102,23 +105,10 @@ client.on("messageCreate", async (message) => {
       player = await client.shoukaku.joinVoiceChannel({
         guildId,
         channelId: voice.id,
-        shardId: 0,
+        shardId: message.guild.shardId ?? 0,
       });
 
       data.player = player;
-
-      /* TRACK END */
-      player.on("trackEnd", () => {
-        const d = queue.get(guildId);
-        if (!d) return;
-
-        d.tracks.shift();
-        playNext(guildId);
-      });
-
-      player.on("exception", (e) => {
-        console.log("❌ audio error:", e);
-      });
     }
 
     /* SEARCH */
@@ -126,8 +116,7 @@ client.on("messageCreate", async (message) => {
 
     try {
       result = await player.node.rest.resolve(`ytsearch:${query}`);
-    } catch (e) {
-      console.log(e);
+    } catch (err) {
       return message.reply("❌ search hatası");
     }
 
@@ -137,16 +126,12 @@ client.on("messageCreate", async (message) => {
 
     const track = result.tracks[0];
 
-    if (!track?.encoded) {
-      return message.reply("❌ track hatası");
-    }
-
     data.tracks.push(track);
 
     message.reply(`➕ eklendi: **${track.info?.title || "unknown"}**`);
 
     if (data.tracks.length === 1) {
-      playNext(guildId);
+      setTimeout(() => playNext(guildId), 300);
     }
   }
 
