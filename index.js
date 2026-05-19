@@ -22,7 +22,7 @@ const prefix = "!";
 const queues = new Map();
 
 client.on("ready", () => {
-  console.log(`${client.user.tag} hazýr`);
+  console.log(`${client.user.tag} hazÃ½r`);
 });
 
 // ================== PLAY ==================
@@ -58,10 +58,10 @@ client.on("messageCreate", async (message) => {
   // ================== PLAY ==================
   if (cmd === `${prefix}play`) {
     const voiceChannel = message.member.voice.channel;
-    if (!voiceChannel) return message.reply("Önce voice’a gir.");
+    if (!voiceChannel) return message.reply("Ã–nce voiceâ€™a gir.");
 
     const url = args[0];
-    if (!ytdl.validateURL(url)) return message.reply("Geçerli YouTube linki ver.");
+    if (!ytdl.validateURL(url)) return message.reply("GeÃ§erli YouTube linki ver.");
 
     let serverQueue = queues.get(message.guild.id);
 
@@ -95,7 +95,7 @@ client.on("messageCreate", async (message) => {
     }
 
     serverQueue.songs.push({ url });
-    message.channel.send(`?? Kuyruða eklendi: ${url}`);
+    message.channel.send(`?? KuyruÃ°a eklendi: ${url}`);
 
     if (serverQueue.songs.length === 1) {
       playSong(message.guild, serverQueue.connection);
@@ -105,16 +105,16 @@ client.on("messageCreate", async (message) => {
   // ================== SKIP ==================
   if (cmd === `${prefix}skip`) {
     const serverQueue = queues.get(message.guild.id);
-    if (!serverQueue) return message.reply("Queue boþ.");
+    if (!serverQueue) return message.reply("Queue boÃ¾.");
 
     serverQueue.player.stop(); // direkt next song tetikler
-    message.channel.send("? Þarký atlandý.");
+    message.channel.send("? ÃžarkÃ½ atlandÃ½.");
   }
 
   // ================== QUEUE ==================
   if (cmd === `${prefix}queue`) {
     const serverQueue = queues.get(message.guild.id);
-    if (!serverQueue) return message.reply("Queue boþ.");
+    if (!serverQueue) return message.reply("Queue boÃ¾.");
 
     message.channel.send(
       "?? Queue:\n" +
@@ -122,5 +122,3 @@ client.on("messageCreate", async (message) => {
     );
   }
 });
-
-client.login("TOKEN_BURAYA");
