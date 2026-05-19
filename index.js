@@ -13,7 +13,7 @@ const client = new Client({
 
 const prefix = "!";
 
-/* ---------------- LAVALINK NODE ---------------- */
+/* ---------------- LAVALINK ---------------- */
 
 const nodes = [
   {
@@ -36,20 +36,21 @@ client.once("ready", () => {
   console.log(`${client.user.tag} hazır`);
 });
 
-/* ---------------- PLAYER HELPERS ---------------- */
+/* ---------------- PLAY NEXT ---------------- */
 
 async function playNext(guildId) {
   const data = queue.get(guildId);
   if (!data || !data.tracks.length) return;
 
   const track = data.tracks[0];
-
   const player = data.player;
 
-  await player.playTrack({ track: track.encoded });
+  await player.playTrack({
+    track: track.encoded,
+  });
 }
 
-/* ---------------- SHOUKAKU EVENTS ---------------- */
+/* ---------------- EVENTS ---------------- */
 
 client.shoukaku.on("ready", (name) => {
   console.log("✅ Lavalink bağlı:", name);
@@ -68,73 +69,94 @@ client.on("messageCreate", async (message) => {
   const args = message.content.slice(1).trim().split(/ +/);
   const cmd = args.shift().toLowerCase();
 
-  /* PLAY */
+  const voice = message.member.voice.channel;
+  const guildId = message.guild.id;
+
+  /* ---------------- PLAY ---------------- */
   if (cmd === "play") {
-    const voice = message.member.voice.channel;
     if (!voice) return message.reply("Voice’a gir");
 
     const query = args.join(" ");
-    if (!query) return message.reply("şarkı yaz");
+    if (!query) return message.reply("Şarkı yaz");
 
-    let node = client.shoukaku.getIdealNode();
+    let player = client.shoukaku.players.get(guildId);
 
-    let player = client.shoukaku.players.get(message.guild.id);
-
+    /* JOIN */
     if (!player) {
-      player = await node.joinVoiceChannel({
-        guildId: message.guild.id,
+      player = await client.shoukaku.joinVoiceChannel({
+        guildId,
         channelId: voice.id,
         shardId: 0,
       });
 
-      queue.set(message.guild.id, {
+      queue.set(guildId, {
         player,
         tracks: [],
       });
 
+      /* TRACK END */
       player.on("end", () => {
-        const data = queue.get(message.guild.id);
+        const data = queue.get(guildId);
         if (!data) return;
 
         data.tracks.shift();
-        playNext(message.guild.id);
+        playNext(guildId);
+      });
+
+      player.on("exception", (e) => {
+        console.log("❌ Audio error:", e);
       });
     }
 
-    const result = await node.rest.resolve(query);
+    /* SEARCH */
+    const result = await player.node.rest.resolve(query);
 
     if (!result || !result.data.length)
       return message.reply("bulunamadı");
 
     const track = result.data[0];
 
-    const data = queue.get(message.guild.id);
+    const data = queue.get(guildId);
     data.tracks.push(track);
 
     message.reply(`➕ eklendi: **${track.info.title}**`);
 
     if (data.tracks.length === 1) {
-      playNext(message.guild.id);
+      playNext(guildId);
     }
   }
 
-  /* SKIP */
+  /* ---------------- SKIP ---------------- */
   if (cmd === "skip") {
-    const player = client.shoukaku.players.get(message.guild.id);
+    const player = client.shoukaku.players.get(guildId);
     if (!player) return;
+
     player.stopTrack();
     message.reply("⏭ skip");
   }
 
-  /* STOP */
+  /* ---------------- STOP ---------------- */
   if (cmd === "stop") {
-    const player = client.shoukaku.players.get(message.guild.id);
+    const player = client.shoukaku.players.get(guildId);
     if (!player) return;
 
     player.destroy();
-    queue.delete(message.guild.id);
+    queue.delete(guildId);
 
     message.reply("⛔ stop");
+  }
+
+  /* ---------------- QUEUE ---------------- */
+  if (cmd === "queue") {
+    const data = queue.get(guildId);
+    if (!data || !data.tracks.length)
+      return message.reply("boş");
+
+    message.reply(
+      data.tracks
+        .map((t, i) => `${i + 1}. ${t.info.title}`)
+        .join("\n")
+    );
   }
 });
 
