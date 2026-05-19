@@ -22,14 +22,16 @@ const client = new Client({
 const prefix = "!";
 
 let youtube;
-
-// guild queue sistemi
 const queues = new Map();
 
+/* ---------------- INIT ---------------- */
+
 client.once("ready", async () => {
-  console.log("Bot hazır");
+  console.log(`${client.user.tag} hazır`);
   youtube = await Innertube.create();
 });
+
+/* ---------------- QUEUE ---------------- */
 
 function getQueue(guildId) {
   if (!queues.has(guildId)) {
@@ -43,17 +45,34 @@ function getQueue(guildId) {
   return queues.get(guildId);
 }
 
-// yt-dlp stream
+/* ---------------- STREAM (FIXED AUDIO PIPE) ---------------- */
+
 function createStream(url) {
-  return spawn("yt-dlp", ["-f", "bestaudio", "-o", "-", url], {
-    stdio: ["ignore", "pipe", "ignore"],
-  });
+  const yt = spawn("yt-dlp", ["-f", "bestaudio", "-o", "-", url]);
+
+  const ffmpeg = spawn("ffmpeg", [
+    "-i",
+    "pipe:0",
+    "-f",
+    "opus",
+    "-ar",
+    "48000",
+    "-ac",
+    "2",
+    "pipe:1",
+  ]);
+
+  yt.stdout.pipe(ffmpeg.stdin);
+
+  return ffmpeg;
 }
+
+/* ---------------- PLAY NEXT ---------------- */
 
 async function playNext(guildId) {
   const queue = getQueue(guildId);
 
-  if (queue.songs.length === 0) {
+  if (!queue.songs.length) {
     queue.playing = false;
     return;
   }
@@ -63,12 +82,14 @@ async function playNext(guildId) {
   const stream = createStream(song.url);
 
   const resource = createAudioResource(stream.stdout, {
-    inputType: StreamType.Arbitrary,
+    inputType: StreamType.Opus,
   });
 
   queue.player.play(resource);
   queue.playing = true;
 }
+
+/* ---------------- EVENTS ---------------- */
 
 client.on("messageCreate", async (message) => {
   if (!message.guild || message.author.bot) return;
@@ -79,7 +100,7 @@ client.on("messageCreate", async (message) => {
 
   const queue = getQueue(message.guild.id);
 
-  // PLAY
+  /* -------- PLAY -------- */
   if (cmd === "play") {
     const voice = message.member.voice.channel;
     if (!voice) return message.reply("Voice’a gir");
@@ -89,7 +110,6 @@ client.on("messageCreate", async (message) => {
 
     let video;
 
-    // link mi search mü?
     if (query.includes("youtube.com") || query.includes("youtu.be")) {
       video = { title: "YouTube Link", url: query };
     } else {
@@ -100,7 +120,6 @@ client.on("messageCreate", async (message) => {
       };
     }
 
-    // connection
     if (!queue.connection) {
       queue.connection = joinVoiceChannel({
         channelId: voice.id,
@@ -110,10 +129,13 @@ client.on("messageCreate", async (message) => {
 
       queue.connection.subscribe(queue.player);
 
-      // autoplay logic
       queue.player.on(AudioPlayerStatus.Idle, () => {
         queue.songs.shift();
         playNext(message.guild.id);
+      });
+
+      queue.player.on("error", (e) => {
+        console.log("PLAYER ERROR:", e);
       });
     }
 
@@ -121,30 +143,26 @@ client.on("messageCreate", async (message) => {
 
     message.reply(`➕ Eklendi: **${video.title}**`);
 
-    if (!queue.playing) {
-      playNext(message.guild.id);
-    }
+    if (!queue.playing) playNext(message.guild.id);
   }
 
-  // SKIP
+  /* -------- SKIP -------- */
   if (cmd === "skip") {
-    if (queue.player) {
-      queue.player.stop();
-      message.reply("⏭ Skip");
-    }
+    queue.player.stop();
+    message.reply("⏭ Skip");
   }
 
-  // STOP
+  /* -------- STOP -------- */
   if (cmd === "stop") {
     queue.songs = [];
     if (queue.connection) queue.connection.destroy();
     queues.delete(message.guild.id);
-    message.reply("⛔ Durduruldu");
+    message.reply("⛔ Durdu");
   }
 
-  // QUEUE
+  /* -------- QUEUE -------- */
   if (cmd === "queue") {
-    if (!queue.songs.length) return message.reply("Boş queue");
+    if (!queue.songs.length) return message.reply("Boş");
 
     message.reply(
       queue.songs.map((s, i) => `${i + 1}. ${s.title}`).join("\n")
