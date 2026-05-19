@@ -18,7 +18,7 @@ const prefix = "!";
 const nodes = [
   {
     name: "main",
-    url: "127.0.0.1:2333",
+    url: "http://127.0.0.1:2333",
     auth: "youshallnotpass",
     secure: false,
   },
