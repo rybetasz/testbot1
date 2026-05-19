@@ -7,7 +7,8 @@ const {
   AudioPlayerStatus,
   NoSubscriberBehavior,
 } = require("@discordjs/voice");
-const ytdl = require("ytdl-core");
+const { Innertube } = require("youtubei.js");
+const play = require("play-dl");
 
 const client = new Client({
   intents: [
@@ -19,7 +20,18 @@ const client = new Client({
 });
 
 const prefix = "!";
+
+let youtube;
 const queues = new Map();
+
+/* ---------------- INIT ---------------- */
+
+client.once("ready", async () => {
+  console.log("Bot hazır");
+  youtube = await Innertube.create();
+});
+
+/* ---------------- QUEUE ---------------- */
 
 function getQueue(guildId) {
   if (!queues.has(guildId)) {
@@ -31,97 +43,121 @@ function getQueue(guildId) {
         },
       }),
       connection: null,
+      playing: false,
     });
   }
   return queues.get(guildId);
 }
+
+/* ---------------- AUDIO (STABLE FIX) ---------------- */
 
 async function playSong(guildId) {
   const queue = getQueue(guildId);
   const song = queue.songs[0];
   if (!song) return;
 
-  const stream = ytdl(song.url, {
-    filter: "audioonly",
-    quality: "highestaudio",
-    highWaterMark: 1 << 25,
-  });
+  try {
+    const stream = await play.stream(song.url);
 
-  const resource = createAudioResource(stream);
+    const resource = createAudioResource(stream.stream, {
+      inputType: stream.type,
+    });
 
-  queue.player.play(resource);
+    queue.player.play(resource);
+    queue.playing = true;
+  } catch (err) {
+    console.log("STREAM ERROR:", err);
+    queue.songs.shift();
+    playSong(guildId);
+  }
 }
 
-client.once("ready", () => {
-  console.log("Bot hazır");
-});
+/* ---------------- EVENTS ---------------- */
 
 client.on("messageCreate", async (message) => {
   if (!message.guild || message.author.bot) return;
   if (!message.content.startsWith(prefix)) return;
 
-  const args = message.content.slice(1).split(/ +/);
-  const cmd = args.shift();
+  const args = message.content.slice(1).trim().split(/ +/);
+  const cmd = args.shift().toLowerCase();
 
   const queue = getQueue(message.guild.id);
 
-  // PLAY
+  /* -------- PLAY -------- */
   if (cmd === "play") {
     const voice = message.member.voice.channel;
     if (!voice) return message.reply("Voice’a gir");
 
-    const search = args.join(" ");
-    if (!search) return message.reply("şarkı yaz");
+    const query = args.join(" ");
+    if (!query) return message.reply("Şarkı yaz");
 
-    let url = search;
+    let video;
 
-    if (!search.includes("youtube.com") && !search.includes("youtu.be")) {
-      const yts = require("yt-search");
-      const result = await yts(search);
-      url = result.videos[0].url;
-    }
+    try {
+      // LINK
+      if (query.includes("youtube.com") || query.includes("youtu.be")) {
+        video = { title: "YouTube Link", url: query };
+      } else {
+        const search = await youtube.search(query);
+        video = {
+          title: search.videos[0].title,
+          url: search.videos[0].url,
+        };
+      }
 
-    if (!queue.connection) {
-      queue.connection = joinVoiceChannel({
-        channelId: voice.id,
-        guildId: message.guild.id,
-        adapterCreator: message.guild.voiceAdapterCreator,
-      });
+      if (!queue.connection) {
+        queue.connection = joinVoiceChannel({
+          channelId: voice.id,
+          guildId: message.guild.id,
+          adapterCreator: message.guild.voiceAdapterCreator,
+        });
 
-      queue.connection.subscribe(queue.player);
+        queue.connection.subscribe(queue.player);
 
-      queue.player.on(AudioPlayerStatus.Idle, () => {
-        queue.songs.shift();
-        playSong(message.guild.id);
-      });
-    }
+        queue.player.on(AudioPlayerStatus.Idle, () => {
+          queue.songs.shift();
+          playSong(message.guild.id);
+        });
 
-    queue.songs.push({ url });
+        queue.player.on("error", (e) => {
+          console.log("PLAYER ERROR:", e);
+          queue.songs.shift();
+          playSong(message.guild.id);
+        });
+      }
 
-    message.reply("➕ eklendi");
+      queue.songs.push(video);
 
-    if (queue.songs.length === 1) {
-      playSong(message.guild.id);
+      message.reply(`➕ Eklendi: **${video.title}**`);
+
+      if (!queue.playing) playSong(message.guild.id);
+    } catch (err) {
+      console.log("PLAY ERROR:", err);
+      message.reply("❌ Şarkı alınamadı (YouTube block)");
     }
   }
 
-  // SKIP
+  /* -------- SKIP -------- */
   if (cmd === "skip") {
     queue.player.stop();
-    message.reply("⏭ skip");
+    message.reply("⏭ Skip");
   }
 
-  // STOP
+  /* -------- STOP -------- */
   if (cmd === "stop") {
     queue.songs = [];
     queue.connection?.destroy();
     queues.delete(message.guild.id);
-    message.reply("⛔ stop");
+    message.reply("⛔ Durdu");
   }
 
-  // QUEUE
+  /* -------- QUEUE -------- */
   if (cmd === "queue") {
-    message.reply(queue.songs.map((s, i) => `${i + 1}. ${s.url}`).join("\n"));
+    if (!queue.songs.length) return message.reply("Boş");
+
+    message.reply(
+      queue.songs.map((s, i) => `${i + 1}. ${s.title}`).join("\n")
+    );
   }
 });
 
