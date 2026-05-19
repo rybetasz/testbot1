@@ -40,14 +40,22 @@ client.once("ready", () => {
 
 async function playNext(guildId) {
   const data = queue.get(guildId);
-  if (!data || !data.tracks.length) return;
+  if (!data || !data.tracks || data.tracks.length === 0) return;
 
   const track = data.tracks[0];
   const player = data.player;
 
-  await player.playTrack({
-    track: track.encoded,
-  });
+  if (!track || !track.encoded) return;
+
+  try {
+    await player.playTrack({
+      track: track.encoded,
+    });
+  } catch (e) {
+    console.log("PLAY ERROR:", e);
+    data.tracks.shift();
+    playNext(guildId);
+  }
 }
 
 /* ---------------- EVENTS ---------------- */
@@ -72,12 +80,21 @@ client.on("messageCreate", async (message) => {
   const voice = message.member.voice.channel;
   const guildId = message.guild.id;
 
+  const getData = () => {
+    if (!queue.has(guildId)) {
+      queue.set(guildId, { player: null, tracks: [] });
+    }
+    return queue.get(guildId);
+  };
+
   /* ---------------- PLAY ---------------- */
   if (cmd === "play") {
     if (!voice) return message.reply("Voice’a gir");
 
     const query = args.join(" ");
     if (!query) return message.reply("Şarkı yaz");
+
+    let data = getData();
 
     let player = client.shoukaku.players.get(guildId);
 
@@ -89,34 +106,46 @@ client.on("messageCreate", async (message) => {
         shardId: 0,
       });
 
-      queue.set(guildId, {
-        player,
-        tracks: [],
-      });
+      data.player = player;
 
       /* TRACK END */
       player.on("end", () => {
-        const data = queue.get(guildId);
-        if (!data) return;
+        const d = queue.get(guildId);
+        if (!d) return;
 
-        data.tracks.shift();
+        d.tracks.shift();
         playNext(guildId);
       });
 
       player.on("exception", (e) => {
-        console.log("❌ Audio error:", e);
+        console.log("❌ audio error:", e);
       });
     }
 
-    /* SEARCH */
-    const result = await player.node.rest.resolve(query);
+    /* SEARCH (NULL SAFE) */
+    let result;
 
-    if (!result || !result.data.length)
-      return message.reply("bulunamadı");
+    try {
+      result = await player.node.rest.resolve(`ytsearch:${query}`);
+    } catch (e) {
+      return message.reply("❌ search hatası");
+    }
+
+    if (
+      !result ||
+      !result.data ||
+      !Array.isArray(result.data) ||
+      result.data.length === 0
+    ) {
+      return message.reply("❌ bulunamadı");
+    }
 
     const track = result.data[0];
 
-    const data = queue.get(guildId);
+    if (!track || !track.encoded) {
+      return message.reply("❌ track hatası");
+    }
+
     data.tracks.push(track);
 
     message.reply(`➕ eklendi: **${track.info.title}**`);
@@ -149,12 +178,14 @@ client.on("messageCreate", async (message) => {
   /* ---------------- QUEUE ---------------- */
   if (cmd === "queue") {
     const data = queue.get(guildId);
-    if (!data || !data.tracks.length)
+
+    if (!data || !data.tracks || data.tracks.length === 0) {
       return message.reply("boş");
+    }
 
     message.reply(
       data.tracks
-        .map((t, i) => `${i + 1}. ${t.info.title}`)
+        .map((t, i) => `${i + 1}. ${t.info?.title || "unknown"}`)
         .join("\n")
     );
   }
