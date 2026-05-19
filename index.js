@@ -16,9 +16,11 @@ const prefix = "!";
 client.manager = new Manager({
   nodes: [
     {
-      host: "localhost",
+      host: "127.0.0.1", // 🔥 FIX 1
       port: 2333,
       password: "youshallnotpass",
+      retryAmount: 5,
+      retryDelay: 5000,
     },
   ],
   send: (id, payload) => {
@@ -29,10 +31,23 @@ client.manager = new Manager({
 
 client.once("ready", () => {
   console.log(`${client.user.tag} hazır`);
+
   client.manager.init(client.user.id);
 });
 
-client.on("raw", (d) => client.manager.updateVoiceState(d));
+// 🔥 FIX 2 (zorunlu)
+client.on("raw", (d) => {
+  client.manager.updateVoiceState(d);
+});
+
+// 🔥 DEBUG (çok önemli)
+client.manager.on("nodeConnect", node => {
+  console.log("✅ Node bağlandı:", node.options.host);
+});
+
+client.manager.on("nodeError", (node, error) => {
+  console.log("❌ Node hata:", error);
+});
 
 client.on("messageCreate", async (message) => {
   if (!message.guild || message.author.bot) return;
