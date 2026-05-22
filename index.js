@@ -1,8 +1,10 @@
 require('dotenv').config({ path: '/home/ubuntu/testbot1/.env' });
+
 const { Client, GatewayIntentBits } = require('discord.js');
 const { LavalinkManager } = require('lavalink-client');
 
 /* ---------------- DISCORD CLIENT ---------------- */
+
 const client = new Client({
     intents: [
         GatewayIntentBits.Guilds,
@@ -14,86 +16,138 @@ const client = new Client({
 
 const PREFIX = "!";
 
-/* ---------------- LAVALINK MANAGER ---------------- */
+/* ---------------- LAVALINK ---------------- */
+
 const lavalink = new LavalinkManager({
-    nodes: [{
-        host: '127.0.0.1',
-        port: 2333,
-        authorization: 'youshallnotpass',
-        secure: false,
-        retryAmount: 10,
-        retryDelay: 5000,
-    }],
+    nodes: [
+        {
+            id: "main",
+            host: '127.0.0.1',
+            port: 2333,
+            authorization: 'youshallnotpass',
+            secure: false,
+            retryAmount: 10,
+            retryDelay: 5000,
+        }
+    ],
+
     sendToShard: (guildId, payload) => {
         const guild = client.guilds.cache.get(guildId);
         if (guild) guild.shard.send(payload);
     },
+
     client: {
-        id: "", // Ready olayında dolacak
+        id: "",
         username: 'MusicBot'
     },
-    // Kuyruk Ayarları
+
     playerOptions: {
-        onStopFinish: true, // Durunca kuyruğu temizle
-        onDisconnectFinish: true, // Çıkınca kuyruğu temizle
-        defaultSearchPlatform: "youtube", 
+        onDisconnectFinish: true,
+        onStopFinish: true,
+        defaultSearchPlatform: "youtube",
+        volumeDecrementer: 1
     }
 });
 
-/* ---------------- EVENTS ---------------- */
+/* ---------------- LAVALINK EVENTS ---------------- */
 
-lavalink.nodeManager.on('connect', node => console.log(`✅ [Lavalink] ${node.id} bağlantısı başarılı!`));
-lavalink.nodeManager.on('error', (node, error) => console.error(`❌ [Lavalink] Hata:`, error));
-
-lavalink.on('trackStart', (player, track) => {
-    const channel = client.channels.cache.get(player.textChannelId);
-    if (channel) channel.send(`🎵 Şu an çalıyor: **${track.info.title}**`);
+lavalink.nodeManager.on('connect', node => {
+    console.log(`✅ Lavalink bağlandı: ${node.id}`);
 });
 
-lavalink.on('queueEnd', (player) => {
+lavalink.nodeManager.on('error', (node, error) => {
+    console.error(`❌ Lavalink hata (${node.id}):`, error);
+});
+
+lavalink.on('trackStart', async (player, track) => {
     const channel = client.channels.cache.get(player.textChannelId);
-    if (channel) channel.send("✅ Liste bitti. 3 dakika sonra kanaldan çıkılacak.");
-    
-    // 3 Dakikalık AFK Çıkış Sistemi
-    setTimeout(() => {
+
+    if (channel) {
+        channel.send(`🎵 Şu an çalıyor: **${track.info.title}**`);
+    }
+});
+
+lavalink.on('queueEnd', async (player) => {
+    const channel = client.channels.cache.get(player.textChannelId);
+
+    if (channel) {
+        channel.send("✅ Kuyruk bitti. 3 dakika sonra çıkılacak.");
+    }
+
+    setTimeout(async () => {
         const currentPlayer = lavalink.getPlayer(player.guildId);
-        if (currentPlayer && currentPlayer.queue.tracks.length === 0 && !currentPlayer.playing) {
-            currentPlayer.destroy();
+
+        if (
+            currentPlayer &&
+            !currentPlayer.playing &&
+            currentPlayer.queue.tracks.length === 0
+        ) {
+            await currentPlayer.destroy();
+
+            if (channel) {
+                channel.send("👋 Ses kanalından çıkıldı.");
+            }
         }
     }, 180000);
 });
 
+/* ---------------- DISCORD EVENTS ---------------- */
+
 client.on('ready', async () => {
-    console.log(`✅ [Bot] ${client.user.tag} aktif!`);
-    await lavalink.init({ id: client.user.id, username: client.user.username });
+    console.log(`✅ Bot aktif: ${client.user.tag}`);
+
+    await lavalink.init({
+        id: client.user.id,
+        username: client.user.username
+    });
 });
 
-// SES PAKETLERİNİ İLETME (Olmazsa olmaz)
-client.on('raw', d => {
-    if (['VOICE_STATE_UPDATE', 'VOICE_SERVER_UPDATE'].includes(d.t)) {
+/* VOICE EVENTS */
+
+client.on('raw', (d) => {
+    if (
+        d.t === 'VOICE_STATE_UPDATE' ||
+        d.t === 'VOICE_SERVER_UPDATE'
+    ) {
         lavalink.sendRawData(d);
     }
 });
 
 /* ---------------- COMMANDS ---------------- */
 
-client.on("messageCreate", async (message) => {
-    if (message.author.bot || !message.content.startsWith(PREFIX)) return;
+client.on('messageCreate', async (message) => {
+    if (message.author.bot) return;
+    if (!message.content.startsWith(PREFIX)) return;
 
-    const args = message.content.slice(PREFIX.length).trim().split(/\s+/);
+    const args = message.content
+        .slice(PREFIX.length)
+        .trim()
+        .split(/\s+/);
+
     const command = args.shift().toLowerCase();
 
+    /* ---------------- PLAY ---------------- */
+
     if (command === "play" || command === "p") {
+
         const query = args.join(" ");
-        if (!query) return message.reply("❌ Bir isim veya link girmelisin.");
+
+        if (!query) {
+            return message.reply("❌ Şarkı adı veya link gir.");
+        }
 
         const voiceChannel = message.member.voice.channel;
-        if (!voiceChannel) return message.reply("❌ Önce bir ses kanalına gir.");
+
+        if (!voiceChannel) {
+            return message.reply("❌ Önce ses kanalına gir.");
+        }
 
         try {
+
             let player = lavalink.getPlayer(message.guild.id);
-            
+
             if (!player) {
+
                 player = await lavalink.createPlayer({
                     guildId: message.guild.id,
                     voiceChannelId: voiceChannel.id,
@@ -101,55 +155,132 @@ client.on("messageCreate", async (message) => {
                     selfDeaf: true,
                     volume: 100
                 });
+
                 await player.connect();
             }
 
-            // --- ARAMA VE LİNK ÇÖZME ---
-            // 'youtube' üzerinden arıyoruz ama link ise direkt linki çözer
-            let result = await player.search({ query: query }, message.author.id);
+            /* URL KONTROL */
 
-            // KRİTİK DÜZELTME: Link doğrudan bulunamazsa, onu YouTube aramasına zorla
-            if (!result || !result.tracks || result.tracks.length === 0) {
-                console.log("[LOG] Link bulunamadı, arama olarak deneniyor...");
-                result = await player.search({ query: `ytsearch:${query}` }, message.author.id);
+            const isUrl = /^https?:\/\//.test(query);
+
+            let result;
+
+            if (isUrl) {
+
+                console.log("[LOG] Link çözülüyor...");
+
+                result = await player.search(
+                    query,
+                    message.author.id
+                );
+
+            } else {
+
+                console.log("[LOG] YouTube araması yapılıyor...");
+
+                result = await player.search(
+                    `ytsearch:${query}`,
+                    message.author.id
+                );
             }
 
-            if (!result || !result.tracks || result.tracks.length === 0) {
-                return message.reply("❌ Hiçbir sonuç bulunamadı.");
+            /* SONUÇ YOKSA */
+
+            if (
+                !result ||
+                !result.tracks ||
+                result.tracks.length === 0
+            ) {
+                return message.reply("❌ Sonuç bulunamadı.");
             }
+
+            /* PLAYLIST */
 
             if (result.loadType === "playlist") {
+
                 player.queue.add(result.tracks);
-                message.reply(`✅ Playlist eklendi: **${result.playlist.name}** (${result.tracks.length} şarkı)`);
+
+                await message.reply(
+                    `✅ Playlist eklendi: **${result.playlist.name}** (${result.tracks.length} şarkı)`
+                );
+
             } else {
-                player.queue.add(result.tracks[0]);
-                message.reply(`➕ Kuyruğa eklendi: **${result.tracks[0].info.title}**`);
+
+                const track = result.tracks[0];
+
+                player.queue.add(track);
+
+                await message.reply(
+                    `➕ Kuyruğa eklendi: **${track.info.title}**`
+                );
             }
 
-            // Oynatmıyorsa başlat
-            if (!player.playing && !player.paused) await player.play();
+            /* PLAY */
 
-        } catch (error) {
-            console.error(error);
-            message.reply("❌ Arama sırasında bir hata oluştu: " + error.message);
+            if (!player.playing && !player.paused) {
+                await player.play();
+            }
+
+        } catch (err) {
+
+            console.error(err);
+
+            message.reply(
+                `❌ Hata oluştu:\n\`${err.message}\``
+            );
         }
     }
+
+    /* ---------------- SKIP ---------------- */
 
     if (command === "skip" || command === "s") {
+
         const player = lavalink.getPlayer(message.guild.id);
-        if (player) {
-            await player.skip();
-            message.reply("⏭️ Şarkı geçildi.");
+
+        if (!player) {
+            return message.reply("❌ Aktif player yok.");
         }
+
+        await player.skip();
+
+        message.reply("⏭️ Şarkı geçildi.");
     }
 
+    /* ---------------- STOP ---------------- */
+
     if (command === "stop") {
+
         const player = lavalink.getPlayer(message.guild.id);
-        if (player) {
-            await player.destroy();
-            message.reply("⛔ Müzik durduruldu.");
+
+        if (!player) {
+            return message.reply("❌ Aktif player yok.");
         }
+
+        await player.destroy();
+
+        message.reply("⛔ Müzik durduruldu.");
     }
+
+    /* ---------------- QUEUE ---------------- */
+
+    if (command === "queue" || command === "q") {
+
+        const player = lavalink.getPlayer(message.guild.id);
+
+        if (!player || player.queue.tracks.length === 0) {
+            return message.reply("❌ Kuyruk boş.");
+        }
+
+        const queue = player.queue.tracks
+            .slice(0, 10)
+            .map((t, i) => `${i + 1}. ${t.info.title}`)
+            .join("\n");
+
+        message.reply(`📜 Kuyruk:\n${queue}`);
+    }
+
 });
+
+/* ---------------- LOGIN ---------------- */
 
 client.login(process.env.TOKEN);
