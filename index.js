@@ -2,7 +2,7 @@ require('dotenv').config({ path: '/home/ubuntu/testbot1/.env' });
 const { Client, GatewayIntentBits } = require('discord.js');
 const { LavalinkManager } = require('lavalink-client');
 
-// 1. Discord Client Kurulumu
+/* ---------------- DISCORD CLIENT ---------------- */
 const client = new Client({
     intents: [
         GatewayIntentBits.Guilds,
@@ -14,75 +14,81 @@ const client = new Client({
 
 const PREFIX = "!";
 
-// 2. Lavalink Yönetici Ayarları
+/* ---------------- LAVALINK MANAGER ---------------- */
 const lavalink = new LavalinkManager({
     nodes: [{
         host: '127.0.0.1',
         port: 2333,
         authorization: 'youshallnotpass',
-        secure: false
+        secure: false,
+        retryAmount: 10,
+        retryDelay: 5000,
     }],
     sendToShard: (guildId, payload) => {
         const guild = client.guilds.cache.get(guildId);
         if (guild) guild.shard.send(payload);
     },
     client: {
-        id: process.env.CLIENT_ID, // .env dosyana CLIENT_ID ekle veya ready olayında bekle
+        id: "", // Ready olayında dolacak
         username: 'MusicBot'
+    },
+    // Kuyruk Ayarları
+    playerOptions: {
+        onStopFinish: true, // Durunca kuyruğu temizle
+        onDisconnectFinish: true, // Çıkınca kuyruğu temizle
+        defaultSearchPlatform: "youtube", 
     }
 });
 
-// --- LAVALINK ETKİNLİKLERİ ---
-lavalink.nodeManager.on('connect', node => console.log(`✅ [Lavalink] Sunucuya bağlandı!`));
-lavalink.nodeManager.on('error', (node, error) => console.error(`❌ [Lavalink] Hatası:`, error));
+/* ---------------- EVENTS ---------------- */
+
+lavalink.nodeManager.on('connect', node => console.log(`✅ [Lavalink] ${node.id} bağlantısı başarılı!`));
+lavalink.nodeManager.on('error', (node, error) => console.error(`❌ [Lavalink] Hata:`, error));
 
 lavalink.on('trackStart', (player, track) => {
     const channel = client.channels.cache.get(player.textChannelId);
     if (channel) channel.send(`🎵 Şu an çalıyor: **${track.info.title}**`);
 });
 
-// Şarkı bittiğinde otomatik sıradakine geçer (Bu kütüphanede otomatiktir)
 lavalink.on('queueEnd', (player) => {
     const channel = client.channels.cache.get(player.textChannelId);
-    if (channel) channel.send("✅ Sıradaki tüm şarkılar bitti.");
-    // 3 dakika sonra kanaldan çıkma (AFK)
+    if (channel) channel.send("✅ Liste bitti. 3 dakika sonra kanaldan çıkılacak.");
+    
+    // 3 Dakikalık AFK Çıkış Sistemi
     setTimeout(() => {
-        if (!player.playing && player.queue.tracks.length === 0) {
-            player.destroy();
+        const currentPlayer = lavalink.getPlayer(player.guildId);
+        if (currentPlayer && currentPlayer.queue.tracks.length === 0 && !currentPlayer.playing) {
+            currentPlayer.destroy();
         }
     }, 180000);
 });
 
-// --- BOT HAZIR OLDUĞUNDA ---
 client.on('ready', async () => {
-    console.log(`✅ [Bot] ${client.user.tag} olarak giriş yapıldı!`);
-    
-    await lavalink.init({
-        id: client.user.id,
-        username: client.user.username
-    });
+    console.log(`✅ [Bot] ${client.user.tag} aktif!`);
+    await lavalink.init({ id: client.user.id, username: client.user.username });
 });
 
-// Ses verilerini iletme (Çalışması için kritik kısım)
-client.on('raw', (d) => {
+// SES PAKETLERİNİ İLETME (Olmazsa olmaz)
+client.on('raw', d => {
     if (['VOICE_STATE_UPDATE', 'VOICE_SERVER_UPDATE'].includes(d.t)) {
         lavalink.sendRawData(d);
     }
 });
 
-// --- KOMUTLAR ---
-client.on('messageCreate', async (message) => {
+/* ---------------- COMMANDS ---------------- */
+
+client.on("messageCreate", async (message) => {
     if (message.author.bot || !message.content.startsWith(PREFIX)) return;
 
     const args = message.content.slice(PREFIX.length).trim().split(/\s+/);
     const command = args.shift().toLowerCase();
 
-    if (command === 'play' || command === 'p') {
-        const query = args.join(' ');
-        if (!query) return message.reply('❌ Şarkı adı veya link gir!');
+    if (command === "play" || command === "p") {
+        const query = args.join(" ");
+        if (!query) return message.reply("❌ Bir isim veya link girmelisin.");
 
         const voiceChannel = message.member.voice.channel;
-        if (!voiceChannel) return message.reply('❌ Önce bir ses kanalına gir!');
+        if (!voiceChannel) return message.reply("❌ Önce bir ses kanalına gir.");
 
         try {
             let player = lavalink.getPlayer(message.guild.id);
@@ -98,42 +104,50 @@ client.on('messageCreate', async (message) => {
                 await player.connect();
             }
 
-            // Arama yapma
-            const result = await player.search({ query: query }, message.author.id);
-            
+            // --- ARAMA VE LİNK ÇÖZME ---
+            // 'youtube' üzerinden arıyoruz ama link ise direkt linki çözer
+            let result = await player.search({ query: query }, message.author.id);
+
+            // KRİTİK DÜZELTME: Link doğrudan bulunamazsa, onu YouTube aramasına zorla
             if (!result || !result.tracks || result.tracks.length === 0) {
-                return message.reply('❌ Şarkı bulunamadı.');
+                console.log("[LOG] Link bulunamadı, arama olarak deneniyor...");
+                result = await player.search({ query: `ytsearch:${query}` }, message.author.id);
             }
 
-            if (result.loadType === 'playlist') {
+            if (!result || !result.tracks || result.tracks.length === 0) {
+                return message.reply("❌ Hiçbir sonuç bulunamadı.");
+            }
+
+            if (result.loadType === "playlist") {
                 player.queue.add(result.tracks);
-                message.reply(`🔍 **${result.playlist.name}** listesinden ${result.tracks.length} şarkı eklendi.`);
+                message.reply(`✅ Playlist eklendi: **${result.playlist.name}** (${result.tracks.length} şarkı)`);
             } else {
                 player.queue.add(result.tracks[0]);
-                message.reply(`🔍 **${result.tracks[0].info.title}** sıraya eklendi.`);
+                message.reply(`➕ Kuyruğa eklendi: **${result.tracks[0].info.title}**`);
             }
 
-            // Eğer bir şey çalmıyorsa başlat
+            // Oynatmıyorsa başlat
             if (!player.playing && !player.paused) await player.play();
 
         } catch (error) {
             console.error(error);
-            message.reply('❌ Hata oluştu: ' + error.message);
+            message.reply("❌ Arama sırasında bir hata oluştu: " + error.message);
         }
     }
 
-    if (command === 'skip' || command === 's') {
+    if (command === "skip" || command === "s") {
         const player = lavalink.getPlayer(message.guild.id);
-        if (!player) return;
-        await player.skip();
-        message.reply("⏭️ Şarkı geçildi.");
+        if (player) {
+            await player.skip();
+            message.reply("⏭️ Şarkı geçildi.");
+        }
     }
 
-    if (command === 'stop') {
+    if (command === "stop") {
         const player = lavalink.getPlayer(message.guild.id);
         if (player) {
             await player.destroy();
-            message.reply("⛔ Durduruldu.");
+            message.reply("⛔ Müzik durduruldu.");
         }
     }
 });
