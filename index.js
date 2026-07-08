@@ -191,9 +191,13 @@ client.on('messageCreate', async (message) => {
                 !result.tracks ||
                 result.tracks.length === 0
             ) {
-                return message.reply("❌ Sonuç bulunamadı.");
-            }
-
+				console.log("[DEBUG] loadType:", result?.loadType);
+				console.log("[DEBUG] exception:", result?.exception);
+				console.log("[DEBUG] full result:", JSON.stringify(result, null, 2));
+				return message.reply(
+				`❌ Sonuç bulunamadı.\nloadType: \`${result?.loadType}\`\n${result?.exception?.message ? `Hata: \`${result.exception.message}\`` : ""}`
+				);
+			  }
             /* PLAYLIST */
 
             if (result.loadType === "playlist") {
