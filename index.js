@@ -1,4 +1,4 @@
-require('dotenv').config({ path: '/home/ubuntu/testbot1/.env' });
+require('dotenv').config();
 
 const { Client, GatewayIntentBits } = require('discord.js');
 const { LavalinkManager } = require('lavalink-client');
