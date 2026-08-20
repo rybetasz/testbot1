@@ -33,7 +33,10 @@ const lavalink = new LavalinkManager({
 
     sendToShard: (guildId, payload) => {
         const guild = client.guilds.cache.get(guildId);
-        if (guild) guild.shard.send(payload);
+
+        if (guild) {
+            guild.shard.send(payload);
+        }
     },
 
     client: {
@@ -44,7 +47,10 @@ const lavalink = new LavalinkManager({
     playerOptions: {
         onDisconnectFinish: true,
         onStopFinish: true,
+
+        // !play komutunun mevcut davranışı
         defaultSearchPlatform: "youtube",
+
         volumeDecrementer: 1
     }
 });
@@ -59,66 +65,119 @@ lavalink.nodeManager.on('error', (node, error) => {
     console.error(`❌ Lavalink hata (${node.id}):`, error);
 });
 
+/* TRACK START */
+
 lavalink.on('trackStart', async (player, track) => {
-    const channel = client.channels.cache.get(player.textChannelId);
+
+    const channel = client.channels.cache.get(
+        player.textChannelId
+    );
 
     if (channel) {
-        channel.send(`🎵 Şu an çalıyor: **${track.info.title}**`);
+        channel.send(
+            `🎵 Şu an çalıyor: **${track.info.title}**`
+        );
     }
 });
 
-/* Gerçek çalma hatalarını gösteren event'ler */
+/* TRACK EXCEPTION */
 
 lavalink.on('trackException', async (player, track, payload) => {
-    console.error('[TRACK EXCEPTION]', JSON.stringify(payload, null, 2));
 
-    const channel = client.channels.cache.get(player.textChannelId);
+    console.error(
+        '[TRACK EXCEPTION]',
+        JSON.stringify(payload, null, 2)
+    );
+
+    const channel = client.channels.cache.get(
+        player.textChannelId
+    );
+
     if (channel) {
-        channel.send(`⚠️ Çalma hatası: \`${payload?.exception?.message || 'bilinmeyen hata'}\``);
+
+        channel.send(
+            `⚠️ Çalma hatası: \`${payload?.exception?.message || 'bilinmeyen hata'}\``
+        );
     }
 });
+
+/* TRACK STUCK */
 
 lavalink.on('trackStuck', async (player, track, payload) => {
-    console.error('[TRACK STUCK]', JSON.stringify(payload, null, 2));
 
-    const channel = client.channels.cache.get(player.textChannelId);
+    console.error(
+        '[TRACK STUCK]',
+        JSON.stringify(payload, null, 2)
+    );
+
+    const channel = client.channels.cache.get(
+        player.textChannelId
+    );
+
     if (channel) {
-        channel.send(`⚠️ Şarkı takıldı, geçiliyor: **${track?.info?.title}**`);
+
+        channel.send(
+            `⚠️ Şarkı takıldı, geçiliyor: **${track?.info?.title}**`
+        );
     }
 });
 
+/* TRACK END */
+
 lavalink.on('trackEnd', async (player, track, payload) => {
-    console.log('[TRACK END] reason:', payload?.reason, '| title:', track?.info?.title);
+
+    console.log(
+        '[TRACK END] reason:',
+        payload?.reason,
+        '| title:',
+        track?.info?.title
+    );
 });
 
+/* QUEUE END */
+
 lavalink.on('queueEnd', async (player) => {
-    const channel = client.channels.cache.get(player.textChannelId);
+
+    const channel = client.channels.cache.get(
+        player.textChannelId
+    );
 
     if (channel) {
-        channel.send("✅ Kuyruk bitti. 3 dakika sonra çıkılacak.");
+        channel.send(
+            "✅ Kuyruk bitti. 3 dakika sonra çıkılacak."
+        );
     }
 
     setTimeout(async () => {
-        const currentPlayer = lavalink.getPlayer(player.guildId);
+
+        const currentPlayer =
+            lavalink.getPlayer(player.guildId);
 
         if (
             currentPlayer &&
             !currentPlayer.playing &&
             currentPlayer.queue.tracks.length === 0
         ) {
+
             await currentPlayer.destroy();
 
             if (channel) {
-                channel.send("👋 Ses kanalından çıkıldı.");
+                channel.send(
+                    "👋 Ses kanalından çıkıldı."
+                );
             }
         }
+
     }, 180000);
 });
 
-/* ---------------- DISCORD EVENTS ---------------- */
+/* ---------------- DISCORD READY ---------------- */
 
 client.on('ready', async () => {
-    console.log(`✅ Bot aktif: ${client.user.tag}`);
+
+    console.log(
+        `✅ Bot aktif: ${client.user.tag}`
+    );
 
     await lavalink.init({
         id: client.user.id,
@@ -126,13 +185,15 @@ client.on('ready', async () => {
     });
 });
 
-/* VOICE EVENTS */
+/* ---------------- VOICE EVENTS ---------------- */
 
 client.on('raw', (d) => {
+
     if (
         d.t === 'VOICE_STATE_UPDATE' ||
         d.t === 'VOICE_SERVER_UPDATE'
     ) {
+
         lavalink.sendRawData(d);
     }
 });
@@ -140,8 +201,12 @@ client.on('raw', (d) => {
 /* ---------------- COMMANDS ---------------- */
 
 client.on('messageCreate', async (message) => {
+
     if (message.author.bot) return;
-    if (!message.content.startsWith(PREFIX)) return;
+
+    if (!message.content.startsWith(PREFIX)) {
+        return;
+    }
 
     const args = message.content
         .slice(PREFIX.length)
@@ -150,25 +215,34 @@ client.on('messageCreate', async (message) => {
 
     const command = args.shift().toLowerCase();
 
-    /* ---------------- PLAY ---------------- */
+
+    /* ==================================================
+       PLAY
+       ================================================== */
 
     if (command === "play" || command === "p") {
 
         const query = args.join(" ");
 
         if (!query) {
-            return message.reply("❌ Şarkı adı veya link gir.");
+            return message.reply(
+                "❌ Şarkı adı veya link gir."
+            );
         }
 
-        const voiceChannel = message.member.voice.channel;
+        const voiceChannel =
+            message.member.voice.channel;
 
         if (!voiceChannel) {
-            return message.reply("❌ Önce ses kanalına gir.");
+            return message.reply(
+                "❌ Önce ses kanalına gir."
+            );
         }
 
         try {
 
-            let player = lavalink.getPlayer(message.guild.id);
+            let player =
+                lavalink.getPlayer(message.guild.id);
 
             if (!player) {
 
@@ -185,13 +259,16 @@ client.on('messageCreate', async (message) => {
 
             /* URL KONTROL */
 
-            const isUrl = /^https?:\/\//.test(query);
+            const isUrl =
+                /^https?:\/\//.test(query);
 
             let result;
 
             if (isUrl) {
 
-                console.log("[LOG] Link çözülüyor...");
+                console.log(
+                    "[LOG] Link çözülüyor..."
+                );
 
                 result = await player.search(
                     query,
@@ -200,7 +277,9 @@ client.on('messageCreate', async (message) => {
 
             } else {
 
-                console.log("[LOG] YouTube araması yapılıyor...");
+                console.log(
+                    "[LOG] YouTube araması yapılıyor..."
+                );
 
                 result = await player.search(
                     `ytsearch:${query}`,
@@ -208,19 +287,35 @@ client.on('messageCreate', async (message) => {
                 );
             }
 
-            /* SONUÇ YOKSA / HATA VARSA */
+            /* SONUÇ KONTROL */
 
             if (
                 !result ||
                 !result.tracks ||
                 result.tracks.length === 0
             ) {
-                console.log("[DEBUG] loadType:", result?.loadType);
-                console.log("[DEBUG] exception:", result?.exception);
-                console.log("[DEBUG] full result:", JSON.stringify(result, null, 2));
+
+                console.log(
+                    "[DEBUG] loadType:",
+                    result?.loadType
+                );
+
+                console.log(
+                    "[DEBUG] exception:",
+                    result?.exception
+                );
+
+                console.log(
+                    "[DEBUG] full result:",
+                    JSON.stringify(result, null, 2)
+                );
 
                 return message.reply(
-                    `❌ Sonuç bulunamadı.\nloadType: \`${result?.loadType}\`\n${result?.exception?.message ? `Hata: \`${result.exception.message}\`` : ""}`
+                    `❌ Sonuç bulunamadı.\n` +
+                    `loadType: \`${result?.loadType}\`\n` +
+                    `${result?.exception?.message
+                        ? `Hata: \`${result.exception.message}\``
+                        : ""}`
                 );
             }
 
@@ -228,15 +323,19 @@ client.on('messageCreate', async (message) => {
 
             if (result.loadType === "playlist") {
 
-                player.queue.add(result.tracks);
+                player.queue.add(
+                    result.tracks
+                );
 
                 await message.reply(
-                    `✅ Playlist eklendi: **${result.playlist.name}** (${result.tracks.length} şarkı)`
+                    `✅ Playlist eklendi: **${result.playlist.name}** ` +
+                    `(${result.tracks.length} şarkı)`
                 );
 
             } else {
 
-                const track = result.tracks[0];
+                const track =
+                    result.tracks[0];
 
                 player.queue.add(track);
 
@@ -247,7 +346,11 @@ client.on('messageCreate', async (message) => {
 
             /* PLAY */
 
-            if (!player.playing && !player.paused) {
+            if (
+                !player.playing &&
+                !player.paused
+            ) {
+
                 await player.play();
             }
 
@@ -261,27 +364,42 @@ client.on('messageCreate', async (message) => {
         }
     }
 
-    /* ---------------- SEARCH (YouTube seçimli arama) ---------------- */
 
-    if (command === "search" || command === "ara") {
+    /* ==================================================
+       YOUTUBE SEARCH
+       ================================================== */
+
+    if (
+        command === "search" ||
+        command === "ara"
+    ) {
 
         const query = args.join(" ");
 
         if (!query) {
-            return message.reply("❌ Aranacak şarkı adı gir. Örnek: `!search despacito`");
+
+            return message.reply(
+                "❌ Aranacak şarkı adı gir. Örnek: `!search despacito`"
+            );
         }
 
-        const voiceChannel = message.member.voice.channel;
+        const voiceChannel =
+            message.member.voice.channel;
 
         if (!voiceChannel) {
-            return message.reply("❌ Önce ses kanalına gir.");
+
+            return message.reply(
+                "❌ Önce ses kanalına gir."
+            );
         }
 
         try {
 
-            let player = lavalink.getPlayer(message.guild.id);
+            let player =
+                lavalink.getPlayer(message.guild.id);
 
             if (!player) {
+
                 player = await lavalink.createPlayer({
                     guildId: message.guild.id,
                     voiceChannelId: voiceChannel.id,
@@ -293,53 +411,92 @@ client.on('messageCreate', async (message) => {
                 await player.connect();
             }
 
-            console.log("[LOG] YouTube arama (seçimli) yapılıyor...");
-
-            const result = await player.search(
-                `ytsearch:${query}`,
-                message.author.id
+            console.log(
+                "[LOG] YouTube arama (seçimli) yapılıyor..."
             );
 
-            if (!result || !result.tracks || result.tracks.length === 0) {
-                return message.reply("❌ Sonuç bulunamadı.");
+            const result =
+                await player.search(
+                    `ytsearch:${query}`,
+                    message.author.id
+                );
+
+            if (
+                !result ||
+                !result.tracks ||
+                result.tracks.length === 0
+            ) {
+
+                return message.reply(
+                    "❌ Sonuç bulunamadı."
+                );
             }
 
-            const options = result.tracks.slice(0, 5);
+            const options =
+                result.tracks.slice(0, 5);
 
-            const listText = options
-                .map((t, i) => `**${i + 1}.** ${t.info.title} (${t.info.author})`)
-                .join("\n");
+            const listText =
+                options
+                    .map(
+                        (t, i) =>
+                            `**${i + 1}.** ${t.info.title} (${t.info.author})`
+                    )
+                    .join("\n");
 
             await message.reply(
-                `🔎 Arama sonuçları:\n${listText}\n\n👉 30 saniye içinde **1-${options.length}** arası bir sayı yaz.`
+                `🔎 Arama sonuçları:\n` +
+                `${listText}\n\n` +
+                `👉 30 saniye içinde **1-${options.length}** arası bir sayı yaz.`
             );
 
             const filter = (m) =>
                 m.author.id === message.author.id &&
-                /^[1-5]$/.test(m.content.trim()) &&
-                Number(m.content.trim()) <= options.length;
+                /^[1-5]$/.test(
+                    m.content.trim()
+                ) &&
+                Number(
+                    m.content.trim()
+                ) <= options.length;
 
-            const collected = await message.channel
-                .awaitMessages({
-                    filter,
-                    max: 1,
-                    time: 30000,
-                    errors: ['time']
-                })
-                .catch(() => null);
+            const collected =
+                await message.channel
+                    .awaitMessages({
+                        filter,
+                        max: 1,
+                        time: 30000,
+                        errors: ['time']
+                    })
+                    .catch(() => null);
 
-            if (!collected || collected.size === 0) {
-                return message.reply("⏱️ Süre doldu, arama iptal edildi.");
+            if (
+                !collected ||
+                collected.size === 0
+            ) {
+
+                return message.reply(
+                    "⏱️ Süre doldu, arama iptal edildi."
+                );
             }
 
-            const chosenIndex = Number(collected.first().content.trim()) - 1;
-            const track = options[chosenIndex];
+            const chosenIndex =
+                Number(
+                    collected.first().content.trim()
+                ) - 1;
+
+            const track =
+                options[chosenIndex];
 
             player.queue.add(track);
 
-            await message.reply(`➕ Kuyruğa eklendi: **${track.info.title}**`);
+            await message.reply(
+                `➕ Kuyruğa eklendi: **${track.info.title}**`
+            );
 
-            if (!player.playing && !player.paused) {
+            if (
+                !player.playing &&
+                !player.paused
+            ) {
+
                 await player.play();
             }
 
@@ -353,56 +510,255 @@ client.on('messageCreate', async (message) => {
         }
     }
 
-    /* ---------------- SKIP ---------------- */
 
-    if (command === "skip" || command === "s") {
+    /* ==================================================
+       SOUNDCLOUD SEARCH
+       !scloud
+       !sc
+       ================================================== */
 
-        const player = lavalink.getPlayer(message.guild.id);
+    if (
+        command === "scloud" ||
+        command === "sc"
+    ) {
+
+        const query =
+            args.join(" ");
+
+        if (!query) {
+
+            return message.reply(
+                "❌ SoundCloud'da aranacak şarkı adını gir.\n" +
+                "Örnek: `!scloud daft punk`"
+            );
+        }
+
+        const voiceChannel =
+            message.member.voice.channel;
+
+        if (!voiceChannel) {
+
+            return message.reply(
+                "❌ Önce ses kanalına gir."
+            );
+        }
+
+        try {
+
+            let player =
+                lavalink.getPlayer(message.guild.id);
+
+            if (!player) {
+
+                player = await lavalink.createPlayer({
+                    guildId: message.guild.id,
+                    voiceChannelId: voiceChannel.id,
+                    textChannelId: message.channel.id,
+                    selfDeaf: true,
+                    volume: 100
+                });
+
+                await player.connect();
+            }
+
+            console.log(
+                `[LOG] SoundCloud araması yapılıyor: ${query}`
+            );
+
+            /*
+             * ÖNEMLİ:
+             *
+             * scsearch: kullanıldığı için bu arama
+             * YouTube'a gitmez.
+             */
+
+            const result =
+                await player.search(
+                    `scsearch:${query}`,
+                    message.author.id
+                );
+
+            /* SONUÇ KONTROL */
+
+            if (
+                !result ||
+                !result.tracks ||
+                result.tracks.length === 0
+            ) {
+
+                console.log(
+                    "[SC DEBUG] loadType:",
+                    result?.loadType
+                );
+
+                console.log(
+                    "[SC DEBUG] exception:",
+                    result?.exception
+                );
+
+                console.log(
+                    "[SC DEBUG] full result:",
+                    JSON.stringify(
+                        result,
+                        null,
+                        2
+                    )
+                );
+
+                return message.reply(
+                    `❌ SoundCloud'da sonuç bulunamadı.` +
+                    `${result?.exception?.message
+                        ? `\nHata: \`${result.exception.message}\``
+                        : ""}`
+                );
+            }
+
+            /* İLK SONUÇ */
+
+            const track =
+                result.tracks[0];
+
+            console.log(
+                "[SC] Bulundu:",
+                track.info.title,
+                "|",
+                track.info.author
+            );
+
+            /* KUYRUĞA EKLE */
+
+            player.queue.add(track);
+
+            await message.reply(
+                `☁️ SoundCloud kuyruğa eklendi:\n` +
+                `🎵 **${track.info.title}**\n` +
+                `👤 ${track.info.author}`
+            );
+
+            /* ÇAL */
+
+            if (
+                !player.playing &&
+                !player.paused
+            ) {
+
+                await player.play();
+            }
+
+        } catch (err) {
+
+            console.error(
+                "[SC ERROR]",
+                err
+            );
+
+            await message.reply(
+                `❌ SoundCloud hatası:\n\`${err.message}\``
+            );
+        }
+    }
+
+
+    /* ==================================================
+       SKIP
+       ================================================== */
+
+    if (
+        command === "skip" ||
+        command === "s"
+    ) {
+
+        const player =
+            lavalink.getPlayer(
+                message.guild.id
+            );
 
         if (!player) {
-            return message.reply("❌ Aktif player yok.");
+
+            return message.reply(
+                "❌ Aktif player yok."
+            );
         }
 
         await player.skip();
 
-        message.reply("⏭️ Şarkı geçildi.");
+        message.reply(
+            "⏭️ Şarkı geçildi."
+        );
     }
 
-    /* ---------------- STOP ---------------- */
+
+    /* ==================================================
+       STOP
+       ================================================== */
 
     if (command === "stop") {
 
-        const player = lavalink.getPlayer(message.guild.id);
+        const player =
+            lavalink.getPlayer(
+                message.guild.id
+            );
 
         if (!player) {
-            return message.reply("❌ Aktif player yok.");
+
+            return message.reply(
+                "❌ Aktif player yok."
+            );
         }
 
         await player.destroy();
 
-        message.reply("⛔ Müzik durduruldu.");
+        message.reply(
+            "⛔ Müzik durduruldu."
+        );
     }
 
-    /* ---------------- QUEUE ---------------- */
 
-    if (command === "queue" || command === "q") {
+    /* ==================================================
+       QUEUE
+       ================================================== */
 
-        const player = lavalink.getPlayer(message.guild.id);
+    if (
+        command === "queue" ||
+        command === "q"
+    ) {
 
-        if (!player || player.queue.tracks.length === 0) {
-            return message.reply("❌ Kuyruk boş.");
+        const player =
+            lavalink.getPlayer(
+                message.guild.id
+            );
+
+        if (
+            !player ||
+            player.queue.tracks.length === 0
+        ) {
+
+            return message.reply(
+                "❌ Kuyruk boş."
+            );
         }
 
-        const queue = player.queue.tracks
-            .slice(0, 10)
-            .map((t, i) => `${i + 1}. ${t.info.title}`)
-            .join("\n");
+        const queue =
+            player.queue.tracks
+                .slice(0, 10)
+                .map(
+                    (t, i) =>
+                        `${i + 1}. ${t.info.title}`
+                )
+                .join("\n");
 
-        message.reply(`📜 Kuyruk:\n${queue}`);
+        message.reply(
+            `📜 Kuyruk:\n${queue}`
+        );
     }
 
 });
 
-/* ---------------- LOGIN ---------------- */
 
-client.login(process.env.TOKEN);
+/* ==================================================
+   LOGIN
+   ================================================== */
+
+client.login(
+    process.env.TOKEN
+);
